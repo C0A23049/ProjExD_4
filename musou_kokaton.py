@@ -8,6 +8,9 @@ import pygame as pg
 
 WIDTH = 1100  # ゲームウィンドウの幅
 HEIGHT = 650  # ゲームウィンドウの高さ
+
+
+
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -67,11 +70,13 @@ class Bird(pg.sprite.Sprite):
             (0, +1): pg.transform.rotozoom(img, -90, 0.9),  # 下
             (+1, +1): pg.transform.rotozoom(img, -45, 0.9),  # 右下
         }
-        self.dire = (+1, 0)
+        self.dire = (+1, 0) # こうかとんの向き
         self.image = self.imgs[self.dire]
         self.rect = self.image.get_rect()
         self.rect.center = xy
         self.speed = 10
+        self.state = "normal"  # 通常状態: "normal", 無敵状態: "hyper"
+        self.hyper_life = 0  # 無敵状態の残りフレーム数
 
     def change_img(self, num: int, screen: pg.Surface):
         """
@@ -99,6 +104,13 @@ class Bird(pg.sprite.Sprite):
         if not (sum_mv[0] == 0 and sum_mv[1] == 0):
             self.dire = tuple(sum_mv)
             self.image = self.imgs[self.dire]
+        
+        # 無敵状態処理
+        if self.state == "hyper":
+            self.image = pg.transform.laplacian(self.image)  # 画像を変換
+            self.hyper_life -= 1
+            if self.hyper_life < 0:
+                self.state = "normal"
         screen.blit(self.image, self.rect)
 
 
@@ -137,25 +149,26 @@ class Bomb(pg.sprite.Sprite):
             self.kill()
 
 
-class Beam(pg.sprite.Sprite):
+class Beam(pg.sprite.Sprite): # ビーム
     """
     ビームに関するクラス
     """
-    def __init__(self, bird: Bird):
+    def __init__(self, bird: Bird, angle0=0):
         """
         ビーム画像Surfaceを生成する
         引数 bird：ビームを放つこうかとん
         """
         super().__init__()
-        self.vx, self.vy = bird.dire
-        angle = math.degrees(math.atan2(-self.vy, self.vx))
+        self.vx, self.vy = bird.dire # ビームの方向ベクトル
+        angle = math.degrees(math.atan2(-self.vy, self.vx)) + angle0 # ビームの角度
         self.image = pg.transform.rotozoom(pg.image.load(f"fig/beam.png"), angle, 1.0)
-        self.vx = math.cos(math.radians(angle))
+        self.vx = math.cos(math.radians(angle)) 
         self.vy = -math.sin(math.radians(angle))
         self.rect = self.image.get_rect()
         self.rect.centery = bird.rect.centery+bird.rect.height*self.vy
         self.rect.centerx = bird.rect.centerx+bird.rect.width*self.vx
         self.speed = 10
+
 
     def update(self):
         """
@@ -241,6 +254,60 @@ class Score:
         self.image = self.font.render(f"Score: {self.value}", 0, self.color)
         screen.blit(self.image, self.rect)
 
+# 弾幕
+# • 設定：一度に複数方向へビームを発射する
+# • 発動条件：左Shiftキーを押下しながらスペースキー
+# • 消費スコア：なし
+# • 実装例発動条件の押下キーは自由だが必ずグループで相談すること‐50°  +50°
+# • Beamクラスのイニシャライザの引数に回転角度angle0（デフォルトで0）を追加し，ビームの回転角度に加算する
+# • NeoBeamクラスのイニシャライザの引数を，こうかとんbirdとビーム数numとする
+# • NeoBeamクラスのgen_beamsメソッドで，‐50°～+51°の角度の範囲で指定ビーム数の分だけBeamインスタンスを生成し，リストにappendする → リストを返す
+# • 発動条件が満たされたら，NeoBeamクラスのイニシャライザにこうかとんとビーム数を渡し，戻り値のリストをBeamグループに追加する
+
+# class NeoBeam:
+#     """
+#     弾幕に関するクラス
+#     """
+#     def __init__(self, bird: Bird, num: int):
+#         """
+#         弾幕ビームを生成する
+#         引数1 bird：ビームを放つこうかとん
+#         引数2 num：ビーム数
+#         """
+#         super().__init__()
+#         self.beams = self.gen_beams(bird, num) # ビームリスト
+
+#     def gen_beams(self, bird: Bird, num: int) -> list[Beam]:
+#         """
+#         弾幕ビームを生成する
+#         引数1 bird：ビームを放つこうかとん
+#         引数2 num：ビーム数
+#         戻り値：ビームリスト
+#         """
+#         beams = []
+        
+#         for i in range(-50, 51, 100//num):
+#             # ビーム数分だけビームを生成
+#             beams.append(Beam(bird, i))
+#         return beams 
+    
+#     def update(self):
+#         """
+#         弾幕ビームを更新する
+#         """
+#         for beam in self.beams:
+#             beam.update()
+class NeoBeam:
+    def __init__(self, bird: pg.sprite.Sprite, num: float):
+        self.bird = bird
+        self.num = num
+
+    def gen_beams(self) -> list[Beam]:
+        step = 100 // (self.num - 1) if self.num > 1 else 0
+        angles = range(-50, 51, step)
+        beams = [Beam(self.bird, angle) for angle in angles]
+        return beams
+
 
 def main():
     pg.display.set_caption("真！こうかとん無双")
@@ -255,6 +322,8 @@ def main():
     emys = pg.sprite.Group()
 
     tmr = 0
+
+
     clock = pg.time.Clock()
     while True:
         key_lst = pg.key.get_pressed()
@@ -262,7 +331,21 @@ def main():
             if event.type == pg.QUIT:
                 return 0
             if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
-                beams.add(Beam(bird))
+                if key_lst[pg.K_LSHIFT]: # 左Shiftキーを押下しながらスペースキー
+                    Neo_beam = NeoBeam(bird, 5)
+                    beams.add(Neo_beam.gen_beams()) # 弾幕ビームを追加
+                else:
+                    beams.add(Beam(bird))
+                if key_lst[pg.K_LSHIFT]: # 左Shiftキーを押下しながらスペースキー
+                    Neo_beam = NeoBeam(bird, 5)
+                    beams.add(Neo_beam.gen_beams()) # 弾幕ビームを追加
+                else:
+                    beams.add(Beam(bird))
+            # 無敵モード発動条件
+            if event.type == pg.KEYDOWN and event.key == pg.K_RSHIFT and bird.state == "normal" and score.value >= 100:
+                bird.state = "hyper"
+                bird.hyper_life = 500
+                score.value -= 100  # スコアを消費
         screen.blit(bg_img, [0, 0])
 
         if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
@@ -283,11 +366,15 @@ def main():
             score.value += 1  # 1点アップ
 
         for bomb in pg.sprite.spritecollide(bird, bombs, True):  # こうかとんと衝突した爆弾リスト
-            bird.change_img(8, screen)  # こうかとん悲しみエフェクト
-            score.update(screen)
-            pg.display.update()
-            time.sleep(2)
-            return
+            if bird.state == "normal":  # 通常状態ならゲーム終了
+                bird.change_img(8, screen)  # こうかとん悲しみエフェクト
+                score.update(screen)
+                pg.display.update()
+                time.sleep(2)
+                return
+            elif bird.state == "hyper":  # 無敵状態なら爆弾を爆発させ、スコア加算
+                exps.add(Explosion(bomb, 50))
+                score.value += 1
 
         bird.update(key_lst, screen)
         beams.update()
@@ -305,6 +392,7 @@ def main():
 
 
 if __name__ == "__main__":
+    
     pg.init()
     main()
     pg.quit()
