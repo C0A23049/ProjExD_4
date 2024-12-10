@@ -115,6 +115,7 @@ class Bomb(pg.sprite.Sprite):
         引数2 bird：攻撃対象のこうかとん
         """
         super().__init__()
+        self.state = True
         rad = random.randint(10, 50)  # 爆弾円の半径：10以上50以下の乱数
         self.image = pg.Surface((2*rad, 2*rad))
         color = random.choice(__class__.colors)  # 爆弾円の色：クラス変数からランダム選択
@@ -230,9 +231,10 @@ class Score:
     敵機：10点
     """
     def __init__(self):
+        super().__init__()
         self.font = pg.font.Font(None, 50)
         self.color = (0, 0, 255)
-        self.value = 0
+        self.value = 20
         self.image = self.font.render(f"Score: {self.value}", 0, self.color)
         self.rect = self.image.get_rect()
         self.rect.center = 100, HEIGHT-50
@@ -240,6 +242,30 @@ class Score:
     def update(self, screen: pg.Surface):
         self.image = self.font.render(f"Score: {self.value}", 0, self.color)
         screen.blit(self.image, self.rect)
+
+
+class EMP(pg.sprite.Sprite):
+    """
+    電磁パルス発動時に存在する敵機と爆弾を無力化する
+    敵機：爆弾投下できなくなる
+    爆弾：動きが鈍くなる/起動しなくなる
+    EMP：半透明の黄色
+    発動条件：eキー押下かつ、スコア20以上
+    消費スコア：20
+    """
+    def __init__(self,  Bombs:pg.sprite.Group,Enemys:pg.sprite.Group,  screen: pg.Surface):
+        super().__init__()
+        self.image = pg.Surface((WIDTH, HEIGHT))
+        pg.draw.rect(self.image, (255, 255, 0), (0, 0, WIDTH, HEIGHT))
+        self.image.set_alpha(128)
+        self.inf = 100
+        for Enemy in Enemys:
+            Enemy.interval = random.randint(self.inf, self.inf)
+            Enemy.image = pg.transform.laplacian(Enemy.image)
+        Bomb.speed = 3
+        Bomb.state = False
+        self.cost_score = 20
+        time.sleep(0.05)
 
 
 def main():
@@ -253,6 +279,8 @@ def main():
     beams = pg.sprite.Group()
     exps = pg.sprite.Group()
     emys = pg.sprite.Group()
+    emp = pg.sprite.Group()
+
 
     tmr = 0
     clock = pg.time.Clock()
@@ -263,10 +291,15 @@ def main():
                 return 0
             if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
                 beams.add(Beam(bird))
+            if event.type == pg.KEYDOWN and event.key == pg.K_e and score.value >= 20:  # Eキー押下かつ20点以上あるなら
+                score.value -= 20  # 20点消費
+                emp.add(EMP(bombs, emys, screen))
+
         screen.blit(bg_img, [0, 0])
 
         if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
             emys.add(Enemy())
+        
 
         for emy in emys:
             if emy.state == "stop" and tmr%emy.interval == 0:
@@ -283,11 +316,14 @@ def main():
             score.value += 1  # 1点アップ
 
         for bomb in pg.sprite.spritecollide(bird, bombs, True):  # こうかとんと衝突した爆弾リスト
-            bird.change_img(8, screen)  # こうかとん悲しみエフェクト
-            score.update(screen)
-            pg.display.update()
-            time.sleep(2)
-            return
+            if Bomb.state == False:
+                continue
+            if Bomb.state == True:
+                bird.change_img(8, screen)  # こうかとん悲しみエフェクト
+                score.update(screen)
+                pg.display.update()
+                time.sleep(2)
+                return
 
         bird.update(key_lst, screen)
         beams.update()
@@ -299,6 +335,8 @@ def main():
         exps.update()
         exps.draw(screen)
         score.update(screen)
+        emp.update(screen)
+       
         pg.display.update()
         tmr += 1
         clock.tick(50)
