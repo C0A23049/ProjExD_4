@@ -8,9 +8,6 @@ import pygame as pg
 
 WIDTH = 1100  # ゲームウィンドウの幅
 HEIGHT = 650  # ゲームウィンドウの高さ
-
-
-
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -70,7 +67,7 @@ class Bird(pg.sprite.Sprite):
             (0, +1): pg.transform.rotozoom(img, -90, 0.9),  # 下
             (+1, +1): pg.transform.rotozoom(img, -45, 0.9),  # 右下
         }
-        self.dire = (+1, 0) # こうかとんの向き
+        self.dire = (+1, 0)
         self.image = self.imgs[self.dire]
         self.rect = self.image.get_rect()
         self.rect.center = xy
@@ -127,6 +124,7 @@ class Bomb(pg.sprite.Sprite):
         引数2 bird：攻撃対象のこうかとん
         """
         super().__init__()
+        self.state = True
         rad = random.randint(10, 50)  # 爆弾円の半径：10以上50以下の乱数
         self.image = pg.Surface((2*rad, 2*rad))
         color = random.choice(__class__.colors)  # 爆弾円の色：クラス変数からランダム選択
@@ -243,9 +241,10 @@ class Score:
     敵機：10点
     """
     def __init__(self):
+        super().__init__()
         self.font = pg.font.Font(None, 50)
         self.color = (0, 0, 255)
-        self.value = 0
+        self.value = 400
         self.image = self.font.render(f"Score: {self.value}", 0, self.color)
         self.rect = self.image.get_rect()
         self.rect.center = 100, HEIGHT-50
@@ -254,49 +253,30 @@ class Score:
         self.image = self.font.render(f"Score: {self.value}", 0, self.color)
         screen.blit(self.image, self.rect)
 
-# 弾幕
-# • 設定：一度に複数方向へビームを発射する
-# • 発動条件：左Shiftキーを押下しながらスペースキー
-# • 消費スコア：なし
-# • 実装例発動条件の押下キーは自由だが必ずグループで相談すること‐50°  +50°
-# • Beamクラスのイニシャライザの引数に回転角度angle0（デフォルトで0）を追加し，ビームの回転角度に加算する
-# • NeoBeamクラスのイニシャライザの引数を，こうかとんbirdとビーム数numとする
-# • NeoBeamクラスのgen_beamsメソッドで，‐50°～+51°の角度の範囲で指定ビーム数の分だけBeamインスタンスを生成し，リストにappendする → リストを返す
-# • 発動条件が満たされたら，NeoBeamクラスのイニシャライザにこうかとんとビーム数を渡し，戻り値のリストをBeamグループに追加する
 
-# class NeoBeam:
-#     """
-#     弾幕に関するクラス
-#     """
-#     def __init__(self, bird: Bird, num: int):
-#         """
-#         弾幕ビームを生成する
-#         引数1 bird：ビームを放つこうかとん
-#         引数2 num：ビーム数
-#         """
-#         super().__init__()
-#         self.beams = self.gen_beams(bird, num) # ビームリスト
+class EMP(pg.sprite.Sprite):
+    """
+    電磁パルス発動時に存在する敵機と爆弾を無力化する
+    敵機：爆弾投下できなくなる
+    爆弾：動きが鈍くなる/起動しなくなる
+    EMP：半透明の黄色
+    発動条件：eキー押下かつ、スコア20以上
+    消費スコア：20
+    """
+    def __init__(self,  Bombs:pg.sprite.Group,Enemys:pg.sprite.Group,  screen: pg.Surface):
+        super().__init__()
+        self.image = pg.Surface((WIDTH, HEIGHT))
+        pg.draw.rect(self.image, (255, 255, 0), (0, 0, WIDTH, HEIGHT))
+        self.image.set_alpha(128)
+        self.inf = 100
+        for Enemy in Enemys:
+            Enemy.interval = random.randint(self.inf, self.inf)
+            Enemy.image = pg.transform.laplacian(Enemy.image)
+        Bomb.speed = 3
+        Bomb.state = False
+        self.cost_score = 20
+        time.sleep(0.05)
 
-#     def gen_beams(self, bird: Bird, num: int) -> list[Beam]:
-#         """
-#         弾幕ビームを生成する
-#         引数1 bird：ビームを放つこうかとん
-#         引数2 num：ビーム数
-#         戻り値：ビームリスト
-#         """
-#         beams = []
-        
-#         for i in range(-50, 51, 100//num):
-#             # ビーム数分だけビームを生成
-#             beams.append(Beam(bird, i))
-#         return beams 
-    
-#     def update(self):
-#         """
-#         弾幕ビームを更新する
-#         """
-#         for beam in self.beams:
-#             beam.update()
 class NeoBeam:
     def __init__(self, bird: pg.sprite.Sprite, num: float):
         self.bird = bird
@@ -320,10 +300,10 @@ def main():
     beams = pg.sprite.Group()
     exps = pg.sprite.Group()
     emys = pg.sprite.Group()
+    emp = pg.sprite.Group()
+
 
     tmr = 0
-
-
     clock = pg.time.Clock()
     while True:
         key_lst = pg.key.get_pressed()
@@ -336,11 +316,16 @@ def main():
                     beams.add(Neo_beam.gen_beams()) # 弾幕ビームを追加
                 else:
                     beams.add(Beam(bird))
-                if key_lst[pg.K_LSHIFT]: # 左Shiftキーを押下しながらスペースキー
-                    Neo_beam = NeoBeam(bird, 5)
-                    beams.add(Neo_beam.gen_beams()) # 弾幕ビームを追加
-                else:
-                    beams.add(Beam(bird))
+                # beams.add(Beam(bird))
+            if event.type == pg.KEYDOWN and event.key == pg.K_e and score.value >= 20:  # Eキー押下かつ20点以上あるなら
+                score.value -= 20  # 20点消費
+                emp.add(EMP(bombs, emys, screen))
+
+                # if key_lst[pg.K_LSHIFT]: # 左Shiftキーを押下しながらスペースキー
+                #     Neo_beam = NeoBeam(bird, 5)
+                #     beams.add(Neo_beam.gen_beams()) # 弾幕ビームを追加
+                # else:
+                #     beams.add(Beam(bird))
             # 無敵モード発動条件
             if event.type == pg.KEYDOWN and event.key == pg.K_RSHIFT and bird.state == "normal" and score.value >= 100:
                 bird.state = "hyper"
@@ -350,6 +335,7 @@ def main():
 
         if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
             emys.add(Enemy())
+        
 
         for emy in emys:
             if emy.state == "stop" and tmr%emy.interval == 0:
@@ -366,6 +352,9 @@ def main():
             score.value += 1  # 1点アップ
 
         for bomb in pg.sprite.spritecollide(bird, bombs, True):  # こうかとんと衝突した爆弾リスト
+            # if Bomb.state == False:
+            # #     continue
+            # if Bomb.state == True:
             if bird.state == "normal":  # 通常状態ならゲーム終了
                 bird.change_img(8, screen)  # こうかとん悲しみエフェクト
                 score.update(screen)
@@ -386,6 +375,8 @@ def main():
         exps.update()
         exps.draw(screen)
         score.update(screen)
+        emp.update(screen)
+       
         pg.display.update()
         tmr += 1
         clock.tick(50)
